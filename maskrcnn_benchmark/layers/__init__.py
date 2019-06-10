@@ -12,12 +12,14 @@ from .roi_align import ROIAlign
 from .roi_align import roi_align
 from .roi_pool import ROIPool
 from .roi_pool import roi_pool
-from .smooth_l1_loss import smooth_l1_loss
+from .smooth_l1_loss import smooth_l1_loss, balanced_l1_loss
 from .sigmoid_focal_loss import SigmoidFocalLoss
+from .iou_loss import iou_loss, bounded_iou_loss
 from .dcn.deform_conv_func import deform_conv, modulated_deform_conv
 from .dcn.deform_conv_module import DeformConv, ModulatedDeformConv, ModulatedDeformConvPack
 from .dcn.deform_pool_func import deform_roi_pooling
 from .dcn.deform_pool_module import DeformRoIPooling, DeformRoIPoolingPack, ModulatedDeformRoIPoolingPack
+from .gcb.context_block import ContextBlock
 
 
 __all__ = [
@@ -27,6 +29,9 @@ __all__ = [
     "roi_pool",
     "ROIPool",
     "smooth_l1_loss",
+    "balanced_l1_loss",
+    "iou_loss",
+    "bounded_iou_loss",
     "Conv2d",
     "DFConv2d",
     "ConvTranspose2d",
@@ -43,5 +48,6 @@ __all__ = [
     'DeformRoIPooling',
     'DeformRoIPoolingPack',
     'ModulatedDeformRoIPoolingPack',
+    'ContextBlock'
 ]
 

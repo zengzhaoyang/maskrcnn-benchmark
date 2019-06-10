@@ -146,10 +146,16 @@ class PostProcessor(nn.Module):
         return result
 
 
-def make_roi_box_post_processor(cfg):
+def make_roi_box_post_processor(cfg, stage):
     use_fpn = cfg.MODEL.ROI_HEADS.USE_FPN
 
-    bbox_reg_weights = cfg.MODEL.ROI_HEADS.BBOX_REG_WEIGHTS
+    if stage is None or stage == 1:
+        bbox_reg_weights = cfg.MODEL.ROI_HEADS.BBOX_REG_WEIGHTS
+    elif stage == 2:
+        bbox_reg_weights = cfg.MODEL.ROI_HEADS.STAGE2.BBOX_REG_WEIGHTS
+    elif stage == 3:
+        bbox_reg_weights = cfg.MODEL.ROI_HEADS.STAGE3.BBOX_REG_WEIGHTS
+
     box_coder = BoxCoder(weights=bbox_reg_weights)
 
     score_thresh = cfg.MODEL.ROI_HEADS.SCORE_THRESH
@@ -158,6 +164,122 @@ def make_roi_box_post_processor(cfg):
     cls_agnostic_bbox_reg = cfg.MODEL.CLS_AGNOSTIC_BBOX_REG
 
     postprocessor = PostProcessor(
+        score_thresh,
+        nms_thresh,
+        detections_per_img,
+        box_coder,
+        cls_agnostic_bbox_reg
+    )
+    return postprocessor
+
+
+class CascadePostProcessor(nn.Module):
+    """
+    From a set of classification scores, box regression and proposals,
+    computes the post-processed boxes, and applies NMS to obtain the
+    final results
+    """
+
+    def __init__(
+        self,
+        score_thresh=0.05,
+        nms=0.5,
+        detections_per_img=100,
+        box_coder=None,
+        cls_agnostic_bbox_reg=False
+    ):
+        """
+        Arguments:
+            score_thresh (float)
+            nms (float)
+            detections_per_img (int)
+            box_coder (BoxCoder)
+        """
+        super(CascadePostProcessor, self).__init__()
+        self.score_thresh = score_thresh
+        self.nms = nms
+        self.detections_per_img = detections_per_img
+        if box_coder is None:
+            box_coder = BoxCoder(weights=(10., 10., 5., 5.))
+        self.box_coder = box_coder
+        self.cls_agnostic_bbox_reg = cls_agnostic_bbox_reg
+
+    def forward(self, x, boxes):
+        """
+        Arguments:
+            x (tuple[tensor, tensor]): x contains the class logits
+                and the box_regression from the model.
+            boxes (list[BoxList]): bounding boxes that are used as
+                reference, one for ech image
+
+        Returns:
+            results (list[BoxList]): one BoxList for each image, containing
+                the extra fields labels and scores
+        """
+        class_logits, box_regression = x
+        class_prob = F.softmax(class_logits, -1)
+
+        # TODO think about a representation of batch of boxes
+        image_shapes = [box.size for box in boxes]
+        boxes_per_image = [len(box) for box in boxes]
+        concat_boxes = torch.cat([a.bbox for a in boxes], dim=0)
+
+
+        if self.cls_agnostic_bbox_reg:
+            box_regression = box_regression[:, -4:]
+        proposals = self.box_coder.decode(
+            box_regression.view(sum(boxes_per_image), -1), concat_boxes
+        )
+        if self.cls_agnostic_bbox_reg:
+            proposals = proposals.repeat(1, class_prob.shape[1])
+
+        num_classes = class_prob.shape[1]
+
+        proposals = proposals.split(boxes_per_image, dim=0)
+        class_prob = class_prob.split(boxes_per_image, dim=0)
+
+        if self.training:
+            labels = [box.get_field("labels") for box in boxes]
+        else:
+            labels = [prob.argmax(dim=1) for prob in class_prob]
+
+
+        results = []
+        for prob, boxes_per_img, image_shape, label in zip(
+            class_prob, proposals, image_shapes, labels
+        ):
+
+            boxes_perd_view = boxes_per_img.view(boxes_per_img.shape[0], int(boxes_per_img.shape[1] / 4), 4)
+            boxes_pred_select = torch.gather(boxes_perd_view, 1, label.long().view(label.shape[0], 1, 1).expand(label.shape[0], 1, 4))
+            boxes_pred_select = boxes_pred_select.squeeze(1)
+            boxes_pred_select = boxes_pred_select.detach()
+
+            boxlist = BoxList(boxes_pred_select, image_shape, mode="xyxy")
+            boxlist.add_field("scores", prob)
+            boxlist.add_field("labels", label)
+            boxlist = boxlist.clip_to_image(remove_empty=False)
+
+            results.append(boxlist)
+        return results
+
+def make_roi_box_cascade_processor(cfg, stage=None):
+    use_fpn = cfg.MODEL.ROI_HEADS.USE_FPN
+
+    if stage is None or stage == 1:
+        bbox_reg_weights = cfg.MODEL.ROI_HEADS.BBOX_REG_WEIGHTS
+    elif stage == 2:
+        bbox_reg_weights = cfg.MODEL.ROI_HEADS.STAGE2.BBOX_REG_WEIGHTS
+    elif stage == 3:
+        bbox_reg_weights = cfg.MODEL.ROI_HEADS.STAGE3.BBOX_REG_WEIGHTS
+
+    box_coder = BoxCoder(weights=bbox_reg_weights)
+
+    score_thresh = cfg.MODEL.ROI_HEADS.SCORE_THRESH
+    nms_thresh = cfg.MODEL.ROI_HEADS.NMS
+    detections_per_img = cfg.MODEL.ROI_HEADS.DETECTIONS_PER_IMG
+    cls_agnostic_bbox_reg = cfg.MODEL.CLS_AGNOSTIC_BBOX_REG
+
+    postprocessor = CascadePostProcessor(
         score_thresh,
         nms_thresh,
         detections_per_img,

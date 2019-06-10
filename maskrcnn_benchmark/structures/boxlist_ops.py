@@ -126,3 +126,33 @@ def cat_boxlist(bboxes):
         cat_boxes.add_field(field, data)
 
     return cat_boxes
+
+def cat_boxlist_broad(bboxes):
+    """
+    Concatenates a list of BoxList (having the same image size) into a
+    single BoxList
+
+    Arguments:
+        bboxes (list[BoxList])
+    """
+    assert isinstance(bboxes, (list, tuple))
+    assert all(isinstance(bbox, BoxList) for bbox in bboxes)
+
+    sizes = [b.size for b in bboxes]
+    widths = [s[0] for s in sizes]
+    heights = [s[1] for s in sizes]
+    size = (max(widths), max(heights))
+
+    mode = bboxes[0].mode
+    assert all(bbox.mode == mode for bbox in bboxes)
+
+    fields = set(bboxes[0].fields())
+    assert all(set(bbox.fields()) == fields for bbox in bboxes)
+
+    cat_boxes = BoxList(_cat([bbox.bbox for bbox in bboxes], dim=0), size, mode)
+
+    for field in fields:
+        data = _cat([bbox.get_field(field) for bbox in bboxes], dim=0)
+        cat_boxes.add_field(field, data)
+
+    return cat_boxes

@@ -41,6 +41,53 @@ class LevelMapper(object):
         target_lvls = torch.clamp(target_lvls, min=self.k_min, max=self.k_max)
         return target_lvls.to(torch.int64) - self.k_min
 
+class ContiguousLevelMapper(object):
+    """Determine which FPN level each RoI in a set of RoIs should map to based
+    on the heuristic in the FPN paper.
+    """
+
+    def __init__(self, k_min, k_max, canonical_scale=224, canonical_level=4, eps=1e-6):
+        """
+        Arguments:
+            k_min (int)
+            k_max (int)
+            canonical_scale (int)
+            canonical_level (int)
+            eps (float)
+        """
+        self.k_min = k_min
+        self.k_max = k_max
+        self.s0 = canonical_scale
+        self.lvl0 = canonical_level
+        self.eps = eps
+
+    def __call__(self, boxlists):
+        """
+        Arguments:
+            boxlists (list[BoxList])
+        """
+        # Compute level ids
+        s = torch.sqrt(cat([boxlist.area() for boxlist in boxlists]))
+
+        # Eqn.(1) in FPN paper
+
+        target_lvls = self.lvl0 + torch.log2(s / self.s0 + self.eps)
+
+        target_lvls_low = torch.floor(self.lvl0 + torch.log2(s / self.s0 + self.eps))
+        target_lvls_low = torch.clamp(target_lvls_low, min=self.k_min, max=self.k_max)
+
+        target_lvls_high = torch.ceil(self.lvl0 + torch.log2(s / self.s0 + self.eps))
+        target_lvls_high = torch.clamp(target_lvls_high, min=self.k_min, max=self.k_max)
+
+        weight_high = torch.clamp(target_lvls - target_lvls_low, min=0., max=1.) + self.eps
+        weight_low = torch.clamp(target_lvls_high - target_lvls, min=0., max=1.) + self.eps
+
+        weight_sum = weight_low + weight_high
+        weight_low = weight_low / weight_sum
+        weight_high = weight_high / weight_sum
+
+        return target_lvls_low.to(torch.int64) - self.k_min, weight_low, target_lvls_high.to(torch.int64) - self.k_min, weight_high
+
 
 class Pooler(nn.Module):
     """
@@ -52,7 +99,7 @@ class Pooler(nn.Module):
     which is available thanks to the BoxList.
     """
 
-    def __init__(self, output_size, scales, sampling_ratio):
+    def __init__(self, output_size, scales, sampling_ratio, cfg):
         """
         Arguments:
             output_size (list[tuple[int]] or list[int]): output size for the pooled region
@@ -73,7 +120,13 @@ class Pooler(nn.Module):
         # downsamples by a factor of 2 at each level.
         lvl_min = -torch.log2(torch.tensor(scales[0], dtype=torch.float32)).item()
         lvl_max = -torch.log2(torch.tensor(scales[-1], dtype=torch.float32)).item()
-        self.map_levels = LevelMapper(lvl_min, lvl_max)
+
+        if cfg.MODEL.FPN.CONTIGUOUS_ON:
+            self.map_levels = ContiguousLevelMapper(lvl_min, lvl_max)
+        else:
+            self.map_levels = LevelMapper(lvl_min, lvl_max)
+
+        self.cfg = cfg
 
     def convert_to_roi_format(self, boxes):
         concat_boxes = cat([b.bbox for b in boxes], dim=0)
@@ -108,17 +161,51 @@ class Pooler(nn.Module):
         output_size = self.output_size[0]
 
         dtype, device = x[0].dtype, x[0].device
-        result = torch.zeros(
-            (num_rois, num_channels, output_size, output_size),
-            dtype=dtype,
-            device=device,
-        )
-        for level, (per_level_feature, pooler) in enumerate(zip(x, self.poolers)):
-            idx_in_level = torch.nonzero(levels == level).squeeze(1)
-            rois_per_level = rois[idx_in_level]
-            result[idx_in_level] = pooler(per_level_feature, rois_per_level).to(dtype)
 
-        return result
+        if self.cfg.MODEL.FPN.ADAPTIVE_POOLING:
+            result = []
+            for level, (per_level_feature, pooler) in enumerate(zip(x, self.poolers)):
+                result.append(pooler(per_level_feature, rois).to(dtype))
+            return result
+        else:
+            if not self.cfg.MODEL.FPN.CONTIGUOUS_ON:
+                levels = self.map_levels(boxes)
+                result = torch.zeros(
+                    (num_rois, num_channels, output_size, output_size),
+                    dtype=dtype,
+                    device=device,
+                )
+
+                for level, (per_level_feature, pooler) in enumerate(zip(x, self.poolers)):
+                    idx_in_level = torch.nonzero(levels == level).squeeze(1)
+                    rois_per_level = rois[idx_in_level]
+                    result[idx_in_level] = pooler(per_level_feature, rois_per_level).to(dtype)
+            else:
+                levels_low, weight_low, levels_high, weight_high = self.map_levels(boxes)
+                result_low = torch.zeros(
+                    (num_rois, num_channels, output_size, output_size),
+                    dtype=dtype,
+                    device=device,
+                )
+                result_high = torch.zeros(
+                    (num_rois, num_channels, output_size, output_size),
+                    dtype=dtype,
+                    device=device,
+                )
+                for level, (per_level_feature, pooler) in enumerate(zip(x, self.poolers)):
+                    idx_in_level = torch.nonzero(levels_low == level).squeeze(1)
+                    rois_per_level = rois[idx_in_level]
+                    result_low[idx_in_level] = pooler(per_level_feature, rois_per_level).to(dtype)
+
+                for level, (per_level_feature, pooler) in enumerate(zip(x, self.poolers)):
+                    idx_in_level = torch.nonzero(levels_high == level).squeeze(1)
+                    rois_per_level = rois[idx_in_level]
+                    result_high[idx_in_level] = pooler(per_level_feature, rois_per_level).to(dtype)
+
+                #result = result_low * weight_low.view(-1, 1, 1, 1) + result_high * weight_high.view(-1, 1, 1, 1)
+                result = ([result_low, result_high], [weight_low, weight_high])
+
+            return result
 
 
 def make_pooler(cfg, head_name):
@@ -129,5 +216,6 @@ def make_pooler(cfg, head_name):
         output_size=(resolution, resolution),
         scales=scales,
         sampling_ratio=sampling_ratio,
+        cfg=cfg
     )
     return pooler

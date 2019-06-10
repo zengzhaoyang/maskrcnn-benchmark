@@ -10,6 +10,7 @@ from maskrcnn_benchmark.structures.image_list import to_image_list
 
 from ..backbone import build_backbone
 from ..rpn.rpn import build_rpn
+from ..rpn.ga_rpn import build_ga_rpn
 from ..roi_heads.roi_heads import build_roi_heads
 
 
@@ -27,7 +28,11 @@ class GeneralizedRCNN(nn.Module):
         super(GeneralizedRCNN, self).__init__()
 
         self.backbone = build_backbone(cfg)
-        self.rpn = build_rpn(cfg, self.backbone.out_channels)
+
+        if cfg.MODEL.RPN.USE_GA:
+            self.rpn = build_ga_rpn(cfg, self.backbone.out_channels)
+        else:
+            self.rpn = build_rpn(cfg, self.backbone.out_channels)
         self.roi_heads = build_roi_heads(cfg, self.backbone.out_channels)
 
     def forward(self, images, targets=None):

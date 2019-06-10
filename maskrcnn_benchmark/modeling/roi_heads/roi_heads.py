@@ -23,8 +23,24 @@ class CombinedROIHeads(torch.nn.ModuleDict):
     def forward(self, features, proposals, targets=None):
         losses = {}
         # TODO rename x to roi_box_features, if it doesn't increase memory consumption
-        x, detections, loss_box = self.box(features, proposals, targets)
-        losses.update(loss_box)
+        if self.cfg.MODEL.CASCADE_ON:
+            if self.training:
+                x, detections1, loss_box1 = self.box1(features, proposals, targets)
+                x, detections2, loss_box2 = self.box2(features, detections1, targets)
+                x, detections, loss_box3 = self.box3(features, detections2, targets)
+                losses.update(loss_box1)
+                losses.update(loss_box2)
+                losses.update(loss_box3)
+            else:
+                cls1, bbox1, detections1 = self.box1(features, proposals)
+                cls2, bbox2, detections2 = self.box2(features, detections1)
+                cls3, bbox3, detections3 = self.box3(features, detections2)
+                cls = (cls1 + cls2 + cls3) / 3
+                detections = self.box3.forward_post(cls, bbox3, detections2)
+                return None, detections, {}
+        else:
+            x, detections, loss_box = self.box(features, proposals, targets)
+            losses.update(loss_box)
         if self.cfg.MODEL.MASK_ON:
             mask_features = features
             # optimization: during training, if we share the feature extractor between
@@ -63,7 +79,12 @@ def build_roi_heads(cfg, in_channels):
         return []
 
     if not cfg.MODEL.RPN_ONLY:
-        roi_heads.append(("box", build_roi_box_head(cfg, in_channels)))
+        if cfg.MODEL.CASCADE_ON:
+            roi_heads.append(("box1", build_roi_box_head(cfg, in_channels, stage=1)))
+            roi_heads.append(("box2", build_roi_box_head(cfg, in_channels, stage=2)))
+            roi_heads.append(("box3", build_roi_box_head(cfg, in_channels, stage=3)))
+        else:
+            roi_heads.append(("box", build_roi_box_head(cfg, in_channels)))
     if cfg.MODEL.MASK_ON:
         roi_heads.append(("mask", build_roi_mask_head(cfg, in_channels)))
     if cfg.MODEL.KEYPOINT_ON:

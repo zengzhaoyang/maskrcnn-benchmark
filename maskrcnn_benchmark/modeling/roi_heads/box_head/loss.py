@@ -2,12 +2,12 @@
 import torch
 from torch.nn import functional as F
 
-from maskrcnn_benchmark.layers import smooth_l1_loss
+from maskrcnn_benchmark.layers import smooth_l1_loss, balanced_l1_loss
 from maskrcnn_benchmark.modeling.box_coder import BoxCoder
 from maskrcnn_benchmark.modeling.matcher import Matcher
 from maskrcnn_benchmark.structures.boxlist_ops import boxlist_iou
 from maskrcnn_benchmark.modeling.balanced_positive_negative_sampler import (
-    BalancedPositiveNegativeSampler
+    BalancedPositiveNegativeSampler, IOUBalancedPositiveNegativeSampler
 )
 from maskrcnn_benchmark.modeling.utils import cat
 
@@ -23,7 +23,11 @@ class FastRCNNLossComputation(object):
         proposal_matcher, 
         fg_bg_sampler, 
         box_coder, 
-        cls_agnostic_bbox_reg=False
+        cls_agnostic_bbox_reg=False,
+        bbox_loss_type='smooth',
+        sampling='random',
+        label_smoothing=False,
+        num_classes=81,
     ):
         """
         Arguments:
@@ -35,6 +39,10 @@ class FastRCNNLossComputation(object):
         self.fg_bg_sampler = fg_bg_sampler
         self.box_coder = box_coder
         self.cls_agnostic_bbox_reg = cls_agnostic_bbox_reg
+        self.bbox_loss_type = bbox_loss_type
+        self.sampling = sampling
+        self.label_smoothing = label_smoothing
+        self.num_classes = num_classes
 
     def match_targets_to_proposals(self, proposal, target):
         match_quality_matrix = boxlist_iou(target, proposal)
@@ -47,7 +55,25 @@ class FastRCNNLossComputation(object):
         # out of bounds
         matched_targets = target[matched_idxs.clamp(min=0)]
         matched_targets.add_field("matched_idxs", matched_idxs)
+
         return matched_targets
+
+    def match_targets_to_proposals_withiou(self, proposal, target):
+        match_quality_matrix = boxlist_iou(target, proposal)
+        matched_idxs = self.proposal_matcher(match_quality_matrix)
+        # Fast RCNN only need "labels" field for selecting the targets
+        target = target.copy_with_fields("labels")
+        # get the targets corresponding GT for each proposal
+        # NB: need to clamp the indices because we can have a single
+        # GT in the image, and matched_idxs can be -2, which goes
+        # out of bounds
+        matched_targets = target[matched_idxs.clamp(min=0)]
+        matched_targets.add_field("matched_idxs", matched_idxs)
+
+        matched_iou, _ = match_quality_matrix.max(dim=0)
+        matched_targets.add_field("matched_iou", matched_iou)
+        return matched_targets
+
 
     def prepare_targets(self, proposals, targets):
         labels = []
@@ -79,6 +105,41 @@ class FastRCNNLossComputation(object):
 
         return labels, regression_targets
 
+    def prepare_targets_withiou(self, proposals, targets):
+        labels = []
+        regression_targets = []
+        ious = []
+        for proposals_per_image, targets_per_image in zip(proposals, targets):
+            matched_targets = self.match_targets_to_proposals_withiou(
+                proposals_per_image, targets_per_image
+            )
+            matched_idxs = matched_targets.get_field("matched_idxs")
+
+            labels_per_image = matched_targets.get_field("labels")
+            labels_per_image = labels_per_image.to(dtype=torch.int64)
+
+            matched_iou = matched_targets.get_field("matched_iou")
+
+            # Label background (below the low threshold)
+            bg_inds = matched_idxs == Matcher.BELOW_LOW_THRESHOLD
+            labels_per_image[bg_inds] = 0
+
+            # Label ignore proposals (between low and high thresholds)
+            ignore_inds = matched_idxs == Matcher.BETWEEN_THRESHOLDS
+            labels_per_image[ignore_inds] = -1  # -1 is ignored by sampler
+
+            # compute regression targets
+            regression_targets_per_image = self.box_coder.encode(
+                matched_targets.bbox, proposals_per_image.bbox
+            )
+
+            labels.append(labels_per_image)
+            regression_targets.append(regression_targets_per_image)
+            ious.append(matched_iou)
+
+        return labels, regression_targets, ious
+
+
     def subsample(self, proposals, targets):
         """
         This method performs the positive/negative sampling, and return
@@ -90,8 +151,14 @@ class FastRCNNLossComputation(object):
             targets (list[BoxList])
         """
 
-        labels, regression_targets = self.prepare_targets(proposals, targets)
-        sampled_pos_inds, sampled_neg_inds = self.fg_bg_sampler(labels)
+        if self.sampling == 'random':
+            labels, regression_targets = self.prepare_targets(proposals, targets)
+            sampled_pos_inds, sampled_neg_inds = self.fg_bg_sampler(labels)
+        elif self.sampling == 'balanced':
+            labels, regression_targets, ious = self.prepare_targets_withiou(proposals, targets)
+            sampled_pos_inds, sampled_neg_inds = self.fg_bg_sampler(labels, ious)
+        elif self.sampling == 'ohem':
+            pass
 
         proposals = list(proposals)
         # add corresponding label and regression_targets information to the bounding boxes
@@ -143,7 +210,13 @@ class FastRCNNLossComputation(object):
             [proposal.get_field("regression_targets") for proposal in proposals], dim=0
         )
 
-        classification_loss = F.cross_entropy(class_logits, labels)
+        if self.label_smoothing:
+            eta = 0.008 / (self.num_classes - 1)
+            labels_onehot = torch.full((labels.shape[0], self.num_classes), eta).scatter_(1, labels.view(-1, 1).cpu(), 0.992).to(device)
+            log_softmax = F.log_softmax(class_logits)
+            classification_loss = (-labels_onehot * log_softmax).sum(dim=1).mean(dim=0)
+        else:
+            classification_loss = F.cross_entropy(class_logits, labels)
 
         # get indices that correspond to the regression targets for
         # the corresponding ground truth labels, to be used with
@@ -156,38 +229,76 @@ class FastRCNNLossComputation(object):
             map_inds = 4 * labels_pos[:, None] + torch.tensor(
                 [0, 1, 2, 3], device=device)
 
-        box_loss = smooth_l1_loss(
-            box_regression[sampled_pos_inds_subset[:, None], map_inds],
-            regression_targets[sampled_pos_inds_subset],
-            size_average=False,
-            beta=1,
-        )
+        if self.bbox_loss_type == 'smooth': 
+            box_loss = smooth_l1_loss(
+                box_regression[sampled_pos_inds_subset[:, None], map_inds],
+                regression_targets[sampled_pos_inds_subset],
+                size_average=False,
+                beta=1,
+            )
+        elif self.bbox_loss_type == 'balanced':
+            box_loss = balanced_l1_loss(
+                box_regression[sampled_pos_inds_subset[:, None], map_inds],
+                regression_targets[sampled_pos_inds_subset],
+                size_average=False,
+                beta=1,
+            )
+
         box_loss = box_loss / labels.numel()
 
         return classification_loss, box_loss
 
 
-def make_roi_box_loss_evaluator(cfg):
-    matcher = Matcher(
-        cfg.MODEL.ROI_HEADS.FG_IOU_THRESHOLD,
-        cfg.MODEL.ROI_HEADS.BG_IOU_THRESHOLD,
-        allow_low_quality_matches=False,
-    )
+def make_roi_box_loss_evaluator(cfg, stage=None):
+    if stage is None or stage == 1:
+        matcher = Matcher(
+            cfg.MODEL.ROI_HEADS.FG_IOU_THRESHOLD,
+            cfg.MODEL.ROI_HEADS.BG_IOU_THRESHOLD,
+            allow_low_quality_matches=False,
+        )
+        bbox_reg_weights = cfg.MODEL.ROI_HEADS.BBOX_REG_WEIGHTS
+    elif stage == 2:
+        matcher = Matcher(
+            cfg.MODEL.ROI_HEADS.STAGE2.FG_IOU_THRESHOLD,
+            cfg.MODEL.ROI_HEADS.STAGE2.BG_IOU_THRESHOLD,
+            allow_low_quality_matches=False,
+        )
+        bbox_reg_weights = cfg.MODEL.ROI_HEADS.STAGE2.BBOX_REG_WEIGHTS
+    elif stage == 3:
+        matcher = Matcher(
+            cfg.MODEL.ROI_HEADS.STAGE3.FG_IOU_THRESHOLD,
+            cfg.MODEL.ROI_HEADS.STAGE3.BG_IOU_THRESHOLD,
+            allow_low_quality_matches=False,
+        )
+        bbox_reg_weights = cfg.MODEL.ROI_HEADS.STAGE3.BBOX_REG_WEIGHTS
 
-    bbox_reg_weights = cfg.MODEL.ROI_HEADS.BBOX_REG_WEIGHTS
+
     box_coder = BoxCoder(weights=bbox_reg_weights)
 
-    fg_bg_sampler = BalancedPositiveNegativeSampler(
-        cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE, cfg.MODEL.ROI_HEADS.POSITIVE_FRACTION
-    )
+    sampling = cfg.MODEL.SAMPLING
+    if sampling == "random": 
+        fg_bg_sampler = BalancedPositiveNegativeSampler(
+            cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE, cfg.MODEL.ROI_HEADS.POSITIVE_FRACTION
+        )
+    elif sampling == "balanced":
+        fg_bg_sampler = IOUBalancedPositiveNegativeSampler(
+            cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE, cfg.MODEL.ROI_HEADS.POSITIVE_FRACTION
+        )
 
     cls_agnostic_bbox_reg = cfg.MODEL.CLS_AGNOSTIC_BBOX_REG
+    bbox_loss_type = cfg.MODEL.BBOX_LOSS_TYPE
+    label_smoothing = cfg.MODEL.LABEL_SMOOTHING
+    num_classes = cfg.MODEL.ROI_BOX_HEAD.NUM_CLASSES
 
     loss_evaluator = FastRCNNLossComputation(
         matcher, 
         fg_bg_sampler, 
         box_coder, 
-        cls_agnostic_bbox_reg
+        cls_agnostic_bbox_reg,
+        bbox_loss_type,
+        sampling,
+        label_smoothing,
+        num_classes
     )
 
     return loss_evaluator

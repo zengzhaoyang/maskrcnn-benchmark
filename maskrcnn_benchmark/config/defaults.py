@@ -28,7 +28,11 @@ _C.MODEL.KEYPOINT_ON = False
 _C.MODEL.DEVICE = "cuda"
 _C.MODEL.META_ARCHITECTURE = "GeneralizedRCNN"
 _C.MODEL.CLS_AGNOSTIC_BBOX_REG = False
-
+_C.MODEL.BBOX_LOSS_TYPE = "smooth"
+_C.MODEL.SAMPLING = "random"
+_C.MODEL.USE_WS = False
+_C.MODEL.LABEL_SMOOTHING = False
+_C.MODEL.CASCADE_ON = False
 # If the WEIGHT starts with a catalog://, like :R-50, the code will look for
 # the path in paths_catalog. Else, it will use it as the specified absolute
 # path
@@ -109,6 +113,8 @@ _C.MODEL.FPN = CN()
 _C.MODEL.FPN.USE_GN = False
 _C.MODEL.FPN.USE_RELU = False
 
+_C.MODEL.FPN.CONTIGUOUS_ON = False
+_C.MODEL.FPN.ADAPTIVE_POOLING = False
 
 # ---------------------------------------------------------------------------- #
 # Group Norm options
@@ -171,6 +177,20 @@ _C.MODEL.RPN.FPN_POST_NMS_PER_BATCH = True
 # Custom rpn head, empty to use default conv or separable conv
 _C.MODEL.RPN.RPN_HEAD = "SingleConvRPNHead"
 
+# add for GA
+_C.MODEL.RPN.USE_GA = False
+_C.MODEL.RPN.GA = CN()
+_C.MODEL.RPN.GA.DEFORMABLE_GROUPS = 4
+_C.MODEL.RPN.GA.OCTAVE_BASE_SCALE = 8
+_C.MODEL.RPN.GA.ANCHOR_STRIDES = (4, 8, 16, 32, 64)
+_C.MODEL.RPN.GA.CENTER_RATIO = 0.2
+_C.MODEL.RPN.GA.IGNORE_RATIO = 0.5
+_C.MODEL.RPN.GA.TARGET_WEIGHTS = (1./0.07, 1./0.07, 1./0.11, 1./0.11)
+_C.MODEL.RPN.GA.ANCHOR_WEIGHTS = (1./0.07, 1./0.07, 1./0.14, 1./0.14)
+_C.MODEL.RPN.GA.ASPECT_RATIOS = (0.5, 1.0, 2.0)
+_C.MODEL.RPN.GA.ANCHOR_STRIDE = (4, 8, 16, 32, 64)
+_C.MODEL.RPN.GA.SCALES_PER_OCTAVE = 3
+_C.MODEL.RPN.GA.LOC_FILTER_THR = 0.01
 
 # ---------------------------------------------------------------------------- #
 # ROI HEADS options
@@ -205,6 +225,15 @@ _C.MODEL.ROI_HEADS.NMS = 0.5
 # Maximum number of detections to return per image (100 is based on the limit
 # established for the COCO dataset)
 _C.MODEL.ROI_HEADS.DETECTIONS_PER_IMG = 100
+
+_C.MODEL.ROI_HEADS.STAGE2 = CN()
+_C.MODEL.ROI_HEADS.STAGE2.FG_IOU_THRESHOLD = 0.6
+_C.MODEL.ROI_HEADS.STAGE2.BG_IOU_THRESHOLD = 0.6
+_C.MODEL.ROI_HEADS.STAGE2.BBOX_REG_WEIGHTS = (20., 20., 10., 10.)
+_C.MODEL.ROI_HEADS.STAGE3 = CN()
+_C.MODEL.ROI_HEADS.STAGE3.FG_IOU_THRESHOLD = 0.7
+_C.MODEL.ROI_HEADS.STAGE3.BG_IOU_THRESHOLD = 0.7
+_C.MODEL.ROI_HEADS.STAGE3.BBOX_REG_WEIGHTS = (30., 30., 15., 15.)
 
 
 _C.MODEL.ROI_BOX_HEAD = CN()
@@ -286,6 +315,11 @@ _C.MODEL.RESNETS.STEM_OUT_CHANNELS = 64
 _C.MODEL.RESNETS.STAGE_WITH_DCN = (False, False, False, False)
 _C.MODEL.RESNETS.WITH_MODULATED_DCN = False
 _C.MODEL.RESNETS.DEFORMABLE_GROUPS = 1
+
+_C.MODEL.RESNETS.STAGE_WITH_CT = (False, False, False, False)
+_C.MODEL.RESNETS.CT_RATIO = 1. / 16
+_C.MODEL.RESNETS.CT_POOL = "att"
+_C.MODEL.RESNETS.CT_FUSIONS = ("channel_add", )
 
 
 # ---------------------------------------------------------------------------- #
@@ -407,12 +441,13 @@ _C.SOLVER.WARMUP_FACTOR = 1.0 / 3
 _C.SOLVER.WARMUP_ITERS = 500
 _C.SOLVER.WARMUP_METHOD = "linear"
 
-_C.SOLVER.CHECKPOINT_PERIOD = 2500
+_C.SOLVER.CHECKPOINT_PERIOD = 10000
 
 # Number of images per batch
 # This is global, so if we have 8 GPUs and IMS_PER_BATCH = 16, each GPU will
 # see 2 images per batch
 _C.SOLVER.IMS_PER_BATCH = 16
+_C.SOLVER.TYPE = "step"
 
 # ---------------------------------------------------------------------------- #
 # Specific test options

@@ -9,7 +9,6 @@ from maskrcnn_benchmark.modeling.poolers import Pooler
 from maskrcnn_benchmark.modeling.make_layers import group_norm
 from maskrcnn_benchmark.modeling.make_layers import make_fc
 
-
 @registry.ROI_BOX_FEATURE_EXTRACTORS.register("ResNet50Conv5ROIFeatureExtractor")
 class ResNet50Conv5ROIFeatureExtractor(nn.Module):
     def __init__(self, config, in_channels):
@@ -22,6 +21,7 @@ class ResNet50Conv5ROIFeatureExtractor(nn.Module):
             output_size=(resolution, resolution),
             scales=scales,
             sampling_ratio=sampling_ratio,
+            cfg=config
         )
 
         stage = resnet.StageSpec(index=4, block_count=3, return_features=False)
@@ -62,6 +62,7 @@ class FPN2MLPFeatureExtractor(nn.Module):
             output_size=(resolution, resolution),
             scales=scales,
             sampling_ratio=sampling_ratio,
+            cfg=cfg
         )
         input_size = in_channels * resolution ** 2
         representation_size = cfg.MODEL.ROI_BOX_HEAD.MLP_HEAD_DIM
@@ -80,6 +81,38 @@ class FPN2MLPFeatureExtractor(nn.Module):
 
         return x
 
+    def forward_pool_fc6(self, x, proposals):
+        x = self.pooler(x, proposals)
+        x = [F.relu(self.fc6(item.view(item.size(0), -1))) for item in x]
+        return x
+
+    def forward_fc7(self, x):
+        x = F.relu(self.fc7(x))
+        return x
+
+    def forward_pool_fc6_weights(self, x, proposals):
+        x, w = self.pooler(x, proposals)
+        x = [F.relu(self.fc6(item.view(item.size(0), -1))) for item in x]
+        tot = len(x)
+        x = [x[i] * w[i].view(-1, 1) for i in range(tot)]
+        return x
+
+class Conv2dWS(nn.Conv2d):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
+                 padding=0, dilation=1, groups=1, bias=True):
+        super(Conv2dWS, self).__init__(in_channels, out_channels, kernel_size, stride,
+                 padding, dilation, groups, bias)
+
+    def forward(self, x):
+        weight = self.weight
+        weight_mean = weight.mean(dim=1, keepdim=True).mean(dim=2,
+                                  keepdim=True).mean(dim=3, keepdim=True)
+        weight = weight - weight_mean
+        std = weight.view(weight.size(0), -1).std(dim=1).view(-1, 1, 1, 1) + 1e-5
+        weight = weight / std.expand_as(weight)
+        return F.conv2d(x, weight, self.bias, self.stride,
+                        self.padding, self.dilation, self.groups)
 
 @registry.ROI_BOX_FEATURE_EXTRACTORS.register("FPNXconv1fcFeatureExtractor")
 class FPNXconv1fcFeatureExtractor(nn.Module):
@@ -97,6 +130,7 @@ class FPNXconv1fcFeatureExtractor(nn.Module):
             output_size=(resolution, resolution),
             scales=scales,
             sampling_ratio=sampling_ratio,
+            cfg=cfg
         )
         self.pooler = pooler
 
@@ -105,19 +139,34 @@ class FPNXconv1fcFeatureExtractor(nn.Module):
         num_stacked_convs = cfg.MODEL.ROI_BOX_HEAD.NUM_STACKED_CONVS
         dilation = cfg.MODEL.ROI_BOX_HEAD.DILATION
 
+        use_ws = cfg.MODEL.USE_WS
+
         xconvs = []
         for ix in range(num_stacked_convs):
-            xconvs.append(
-                nn.Conv2d(
-                    in_channels,
-                    conv_head_dim,
-                    kernel_size=3,
-                    stride=1,
-                    padding=dilation,
-                    dilation=dilation,
-                    bias=False if use_gn else True
+            if use_ws:
+                xconvs.append(
+                    Conv2dWS(
+                        in_channels,
+                        conv_head_dim,
+                        kernel_size=3,
+                        stride=1,
+                        padding=dilation,
+                        dilation=dilation,
+                        bias=False if use_gn else True
+                    )
                 )
-            )
+            else:
+                xconvs.append(
+                    nn.Conv2d(
+                        in_channels,
+                        conv_head_dim,
+                        kernel_size=3,
+                        stride=1,
+                        padding=dilation,
+                        dilation=dilation,
+                        bias=False if use_gn else True
+                    )
+                )
             in_channels = conv_head_dim
             if use_gn:
                 xconvs.append(group_norm(in_channels))

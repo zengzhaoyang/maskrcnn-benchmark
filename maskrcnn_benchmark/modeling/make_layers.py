@@ -48,7 +48,8 @@ def make_conv3x3(
     stride=1, 
     use_gn=False,
     use_relu=False,
-    kaiming_init=True
+    kaiming_init=True,
+    use_ws=False
 ):
     conv = Conv2d(
         in_channels, 
@@ -57,7 +58,8 @@ def make_conv3x3(
         stride=stride, 
         padding=dilation, 
         dilation=dilation, 
-        bias=False if use_gn else True
+        bias=False if use_gn else True,
+        ws=use_ws
     )
     if kaiming_init:
         nn.init.kaiming_normal_(
@@ -92,7 +94,7 @@ def make_fc(dim_in, hidden_dim, use_gn=False):
     return fc
 
 
-def conv_with_kaiming_uniform(use_gn=False, use_relu=False):
+def conv_with_kaiming_uniform(use_gn=False, use_relu=False, use_ws=False):
     def make_conv(
         in_channels, out_channels, kernel_size, stride=1, dilation=1
     ):
@@ -103,7 +105,8 @@ def conv_with_kaiming_uniform(use_gn=False, use_relu=False):
             stride=stride, 
             padding=dilation * (kernel_size - 1) // 2, 
             dilation=dilation, 
-            bias=False if use_gn else True
+            bias=False if use_gn else True,
+            ws=use_ws
         )
         # Caffe2 implementation uses XavierFill, which in fact
         # corresponds to kaiming_uniform_ in PyTorch

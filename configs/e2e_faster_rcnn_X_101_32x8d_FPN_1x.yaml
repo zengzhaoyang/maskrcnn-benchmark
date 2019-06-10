@@ -24,8 +24,8 @@ MODEL:
     NUM_GROUPS: 32
     WIDTH_PER_GROUP: 8
 DATASETS:
-  TRAIN: ("coco_2014_train", "coco_2014_valminusminival")
-  TEST: ("coco_2014_minival",)
+  TRAIN: ("coco_2017_train", )
+  TEST: ("coco_2017_val",)
 DATALOADER:
   SIZE_DIVISIBILITY: 32
 SOLVER:
@@ -34,3 +34,4 @@ SOLVER:
   STEPS: (120000, 160000)
   MAX_ITER: 180000
   IMS_PER_BATCH: 8
+OUTPUT_DIR: "models/coco_x_101_fpn_2017"
