@@ -10,6 +10,7 @@ from .loss import make_ga_rpn_loss_evaluator
 from .ga_anchor_generator import make_ga_anchor_generator
 from .inference import make_rpn_postprocessor
 from maskrcnn_benchmark.layers import DeformConv
+import numpy as np
 
 class FeatureAdaption(nn.Module):
 
@@ -62,9 +63,12 @@ class GARPNHead(nn.Module):
         # TODO: mask conv
         # TODO: conv_loc init
 
-        for l in [self.conv, self.cls_logits, self.bbox_pred, self.conv_loc, self.conv_shape]:
+        for l in [self.conv, self.cls_logits, self.bbox_pred, self.conv_shape]:
             torch.nn.init.normal_(l.weight, std=0.01)
             torch.nn.init.constant_(l.bias, 0)
+
+        torch.nn.init.normal_(self.conv_loc.weight, std=0.01)
+        torch.nn.init.constant_(self.conv_loc.bias, float(-np.log((1 - 0.01) / 0.01)))
         #
 
     def forward(self, x):

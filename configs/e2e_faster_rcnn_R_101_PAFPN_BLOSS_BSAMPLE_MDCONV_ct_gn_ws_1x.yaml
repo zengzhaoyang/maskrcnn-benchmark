@@ -2,7 +2,7 @@ MODEL:
   META_ARCHITECTURE: "GeneralizedRCNN"
   WEIGHT: "pretrain/R-101-GN-WS.pkl"
   BACKBONE:
-    CONV_BODY: "R-101-PABFP"
+    CONV_BODY: "R-101-PAFPN"
   RESNETS:
     BACKBONE_OUT_CHANNELS: 256
     STAGE_WITH_DCN: (False, True, True, True)
@@ -28,9 +28,7 @@ MODEL:
     POOLER_RESOLUTION: 7
     POOLER_SCALES: (0.25, 0.125, 0.0625, 0.03125)
     POOLER_SAMPLING_RATIO: 2
-    CONV_HEAD_DIM: 256
-    NUM_STACKED_CONVS: 4
-    FEATURE_EXTRACTOR: "FPNXconv1fcFeatureExtractor"
+    FEATURE_EXTRACTOR: "FPN2MLPFeatureExtractor"
     PREDICTOR: "FPNPredictor"
   BBOX_LOSS_TYPE: "balanced"
   SAMPLING: "balanced"
@@ -45,4 +43,4 @@ SOLVER:
   STEPS: (120000, 160000)
   MAX_ITER: 180000
   IMS_PER_BATCH: 8
-OUTPUT_DIR: "models/coco_r_101_pabfp_bloss_bsample_mdconv_ct_gn_ws_2017"
+OUTPUT_DIR: "models/coco_r_101_pafpn_bloss_bsample_mdconv_ct_gn_ws_2017"

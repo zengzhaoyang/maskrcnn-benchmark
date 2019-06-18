@@ -23,11 +23,11 @@ class ROIBoxHead(torch.nn.Module):
         self.loss_evaluator = make_roi_box_loss_evaluator(cfg, stage)
         self.cfg = cfg
         self.stage = stage
-        #self.loss_weight = 1.
-        #if self.stage == 2:
-        #    self.loss_weight = 0.5
-        #elif self.stage == 3:
-        #    self.loss_weight = 0.25
+        self.loss_weight = 1.
+        if self.stage == 2:
+            self.loss_weight = 0.5
+        elif self.stage == 3:
+            self.loss_weight = 0.25
 
     def forward(self, features, proposals, targets=None):
         """
@@ -88,6 +88,8 @@ class ROIBoxHead(torch.nn.Module):
             )
         else:
             result = self.cascade_processor((class_logits, box_regression), proposals)
+            loss_classifier *= self.loss_weight
+            loss_box_reg *= self.loss_weight
             return (
                 x,
                 result,

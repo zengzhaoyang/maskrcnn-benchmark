@@ -398,7 +398,7 @@ class GARPNLossComputation(object):
             shape_targets,
             beta=0.2,
             size_average=False
-        ) / anchor_total_num * 0.1
+        ) / anchor_total_num
 
 
         anchors = [cat_boxlist(anchors_per_image) for anchors_per_image in guided_anchors]
