@@ -6,6 +6,7 @@ from .roi_box_feature_extractors import make_roi_box_feature_extractor
 from .roi_box_predictors import make_roi_box_predictor
 from .inference import make_roi_box_post_processor, make_roi_box_cascade_processor
 from .loss import make_roi_box_loss_evaluator
+from maskrcnn_benchmark.modeling.poolers import Pooler
 
 
 class ROIBoxHead(torch.nn.Module):
@@ -29,7 +30,20 @@ class ROIBoxHead(torch.nn.Module):
         elif self.stage == 3:
             self.loss_weight = 0.25
 
-    def forward(self, features, proposals, targets=None):
+        if cfg.MODEL.SEMANTIC_ON:
+            resolution = cfg.MODEL.ROI_BOX_HEAD.POOLER_RESOLUTION
+            scales = cfg.MODEL.ROI_BOX_HEAD.SEMANTIC_POOLER_SCALES
+            sampling_ratio = cfg.MODEL.ROI_BOX_HEAD.POOLER_SAMPLING_RATIO
+            pooler = Pooler(
+                output_size=(resolution, resolution),
+                scales=scales,
+                sampling_ratio=sampling_ratio,
+                cfg=cfg
+            )
+            self.pooler = pooler
+
+
+    def forward(self, features, proposals, targets=None, semanticx=None):
         """
         Arguments:
             features (list[Tensor]): feature-maps from possibly several levels
@@ -62,7 +76,13 @@ class ROIBoxHead(torch.nn.Module):
             x = torch.stack(x).sum(0)
             x = self.feature_extractor.forward_fc7(x)
         else:
-            x = self.feature_extractor(features, proposals)
+            if self.cfg.MODEL.SEMANTIC_ON:
+                x = self.feature_extractor.forward_pool(features, proposals)
+                semanticx = self.pooler([semanticx], proposals)
+                x += semanticx
+                x = self.feature_extractor.forward_extra(x)
+            else:
+                x = self.feature_extractor(features, proposals)
         # final classifier that converts the features into predictions
         class_logits, box_regression = self.predictor(x)
 

@@ -15,6 +15,11 @@ class DatasetCatalog(object):
             "img_dir": "coco/val2017",
             "ann_file": "coco/annotations/instances_val2017.json"
         },
+        "coco_2017_train_stuff": {
+            "img_dir": "coco/train2017",
+            "ann_file": "coco/annotations/instances_train2017.json",
+            "stuff_dir": "coco/annotations/stuff_train2017_pixelmaps"
+        },
         "coco_2017_test_dev": {
             "img_dir": "coco/test2017",
             "ann_file": "coco/annotations/image_info_test-dev2017.json"
@@ -127,6 +132,9 @@ class DatasetCatalog(object):
                 root=os.path.join(data_dir, attrs["img_dir"]),
                 ann_file=os.path.join(data_dir, attrs["ann_file"]),
             )
+            if 'stuff' in name:
+                args['stuff_dir'] = os.path.join(data_dir, attrs["stuff_dir"])
+                args['with_stuff'] = True
             return dict(
                 factory="COCODataset",
                 args=args,

@@ -1,12 +1,24 @@
 MODEL:
   META_ARCHITECTURE: "GeneralizedRCNN"
-  WEIGHT: "catalog://ImageNetPretrained/MSRA/R-101"
+  WEIGHT: "pretrain/R-101-GN-WS.pkl"
   CASCADE_ON: True
   CLS_AGNOSTIC_BBOX_REG: True
   BACKBONE:
-    CONV_BODY: "R-101-FPN"
+    CONV_BODY: "R-101-BFP"
   RESNETS:
     BACKBONE_OUT_CHANNELS: 256
+    STRIDE_IN_1X1: False
+    TRANS_FUNC: "BottleneckWithGN"
+    STEM_FUNC: "StemWithGN"
+    STAGE_WITH_DCN: (False, True, True, True)
+    WITH_MODULATED_DCN: False
+    DEFORMABLE_GROUPS: 1
+    STAGE_WITH_CT: (False, True, True, True)
+    CT_RATIO: 0.25 # 1/16
+    CT_POOL: "att"
+    CT_FUSIONS: ("channel_add", )
+  FPN:
+    USE_GN: True
   RPN:
     USE_FPN: True
     ANCHOR_STRIDE: (4, 8, 16, 32, 64)
@@ -17,11 +29,15 @@ MODEL:
   ROI_HEADS:
     USE_FPN: True
   ROI_BOX_HEAD:
+    USE_GN: True
     POOLER_RESOLUTION: 7
     POOLER_SCALES: (0.25, 0.125, 0.0625, 0.03125)
     POOLER_SAMPLING_RATIO: 2
-    FEATURE_EXTRACTOR: "FPN2MLPFeatureExtractor"
+    CONV_HEAD_DIM: 256
+    NUM_STACKED_CONVS: 4
+    FEATURE_EXTRACTOR: "FPNXconv1fcFeatureExtractor"
     PREDICTOR: "FPNPredictor"
+  USE_WS: True
 DATASETS:
   TRAIN: ("coco_2017_train", )
   TEST: ("coco_2017_val",)
@@ -33,4 +49,4 @@ SOLVER:
   STEPS: (60000, 80000)
   MAX_ITER: 90000
   IMS_PER_BATCH: 16
-OUTPUT_DIR: "models/cascade_r_101_fpn_weight_2017"
+OUTPUT_DIR: "models/cascade_r_101_bfp_mdconv_ct_gn_ws_2017"

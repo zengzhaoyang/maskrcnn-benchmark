@@ -44,13 +44,15 @@ class MaskRCNNFPNFeatureExtractor(nn.Module):
         layers = cfg.MODEL.ROI_MASK_HEAD.CONV_LAYERS
         dilation = cfg.MODEL.ROI_MASK_HEAD.DILATION
 
+        use_ws = cfg.MODEL.USE_WS
+
         next_feature = input_size
         self.blocks = []
         for layer_idx, layer_features in enumerate(layers, 1):
             layer_name = "mask_fcn{}".format(layer_idx)
             module = make_conv3x3(
                 next_feature, layer_features,
-                dilation=dilation, stride=1, use_gn=use_gn
+                dilation=dilation, stride=1, use_gn=use_gn, use_ws=use_ws
             )
             self.add_module(layer_name, module)
             next_feature = layer_features
@@ -60,9 +62,22 @@ class MaskRCNNFPNFeatureExtractor(nn.Module):
     def forward(self, x, proposals):
         x = self.pooler(x, proposals)
 
+        if x.shape[0] == 0:
+            return x
         for layer_name in self.blocks:
             x = F.relu(getattr(self, layer_name)(x))
 
+        return x
+
+    def forward_pool(self, x, proposals):
+        x = self.pooler(x, proposals)
+        return x
+
+    def forward_conv(self, x):
+        if x.shape[0] == 0:
+            return x
+        for layer_name in self.blocks:
+            x = F.relu(getattr(self, layer_name)(x))
         return x
 
 

@@ -1,8 +1,6 @@
 MODEL:
   META_ARCHITECTURE: "GeneralizedRCNN"
   WEIGHT: "catalog://ImageNetPretrained/MSRA/R-101"
-  CASCADE_ON: True
-  CLS_AGNOSTIC_BBOX_REG: True
   BACKBONE:
     CONV_BODY: "R-101-FPN"
   RESNETS:
@@ -22,6 +20,7 @@ MODEL:
     POOLER_SAMPLING_RATIO: 2
     FEATURE_EXTRACTOR: "FPN2MLPFeatureExtractor"
     PREDICTOR: "FPNPredictor"
+  IOU_ON: True
 DATASETS:
   TRAIN: ("coco_2017_train", )
   TEST: ("coco_2017_val",)
@@ -33,4 +32,4 @@ SOLVER:
   STEPS: (60000, 80000)
   MAX_ITER: 90000
   IMS_PER_BATCH: 16
-OUTPUT_DIR: "models/cascade_r_101_fpn_weight_2017"
+OUTPUT_DIR: "models/coco_r_101_fpn_iou_2017"

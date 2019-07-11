@@ -22,6 +22,8 @@ MODEL:
     POOLER_SAMPLING_RATIO: 2
     FEATURE_EXTRACTOR: "FPN2MLPFeatureExtractor"
     PREDICTOR: "FPNPredictor"
+  SAMPLING: "balanced"
+
 DATASETS:
   TRAIN: ("coco_2017_train", )
   TEST: ("coco_2017_val",)
@@ -33,4 +35,4 @@ SOLVER:
   STEPS: (60000, 80000)
   MAX_ITER: 90000
   IMS_PER_BATCH: 16
-OUTPUT_DIR: "models/cascade_r_101_fpn_weight_2017"
+OUTPUT_DIR: "models/cascade_r_101_fpn_bsample_2017"

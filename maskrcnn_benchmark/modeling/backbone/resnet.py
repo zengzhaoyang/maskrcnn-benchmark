@@ -22,7 +22,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from maskrcnn_benchmark.layers import FrozenBatchNorm2d
+from maskrcnn_benchmark.layers import FrozenBatchNorm2d, FrozenOriBatchNorm2d
 from maskrcnn_benchmark.layers import Conv2d
 from maskrcnn_benchmark.layers import DFConv2d
 from maskrcnn_benchmark.layers import ContextBlock
@@ -140,6 +140,7 @@ class ResNet(nn.Module):
 
         # Optionally freeze (requires_grad=False) parts of the backbone
         self._freeze_backbone(cfg.MODEL.BACKBONE.FREEZE_CONV_BODY_AT)
+        self.cfg = cfg
 
     def _freeze_backbone(self, freeze_at):
         if freeze_at < 0:
@@ -160,6 +161,21 @@ class ResNet(nn.Module):
             if self.return_features[stage_name]:
                 outputs.append(x)
         return outputs
+
+    def train(self, mode=True):
+        super(ResNet, self).train(mode)
+        for m in self.modules():
+            if isinstance(m, FrozenOriBatchNorm2d):
+                m.eval()
+        #for stage_index in range(self.cfg.MODEL.BACKBONE.FREEZE_CONV_BODY_AT):
+        #    if stage_index == 0:
+        #        m = self.stem
+        #    else:
+        #        m = getattr(self, "layer" + str(stage_index))
+        #    for mm in m.modules():
+        #        if isinstance(mm, FrozenOriBatchNorm2d):
+        #            print('freeze')
+        #            mm.eval()
 
 
 class ResNetHead(nn.Module):
@@ -464,12 +480,7 @@ class BottleneckWithGN(Bottleneck):
             ct_config=ct_config
         )
 
-
-class StemWithGN(BaseStem):
-    def __init__(self, cfg):
-        super(StemWithGN, self).__init__(cfg, norm_func=group_norm)
-
-class BottleneckWithSyncBatchNorm(Bottleneck):
+class BottleneckWithFixedOriBatchNorm(Bottleneck):
     def __init__(
         self,
         in_channels,
@@ -483,7 +494,7 @@ class BottleneckWithSyncBatchNorm(Bottleneck):
         ws=False,
         ct_config={}
     ):
-        super(BottleneckWithSyncBatchNorm, self).__init__(
+        super(BottleneckWithFixedOriBatchNorm, self).__init__(
             in_channels=in_channels,
             bottleneck_channels=bottleneck_channels,
             out_channels=out_channels,
@@ -491,28 +502,36 @@ class BottleneckWithSyncBatchNorm(Bottleneck):
             stride_in_1x1=stride_in_1x1,
             stride=stride,
             dilation=dilation,
-            norm_func=torch.nn.SyncBatchNorm,
+            norm_func=FrozenOriBatchNorm2d,
             dcn_config=dcn_config,
             ws=ws,
             ct_config=ct_config
         )
 
-class StemWithSyncBatchNorm(BaseStem):
+
+class StemWithFixedOriBatchNorm(BaseStem):
     def __init__(self, cfg):
-        super(StemWithSyncBatchNorm, self).__init__(
-            cfg, norm_fuc=torch.nn.SyncBatchNorm
+        super(StemWithFixedOriBatchNorm, self).__init__(
+            cfg, norm_func=FrozenOriBatchNorm2d
         )
 
+
+
+class StemWithGN(BaseStem):
+    def __init__(self, cfg):
+        super(StemWithGN, self).__init__(cfg, norm_func=group_norm)
 
 
 _TRANSFORMATION_MODULES = Registry({
     "BottleneckWithFixedBatchNorm": BottleneckWithFixedBatchNorm,
     "BottleneckWithGN": BottleneckWithGN,
+    "BottleneckWithFixedOriBatchNorm": BottleneckWithFixedOriBatchNorm
 })
 
 _STEM_MODULES = Registry({
     "StemWithFixedBatchNorm": StemWithFixedBatchNorm,
     "StemWithGN": StemWithGN,
+    "StemWithFixedOriBatchNorm": StemWithFixedOriBatchNorm
 })
 
 _STAGE_SPECS = Registry({
@@ -534,4 +553,7 @@ _STAGE_SPECS = Registry({
     "R-50-PABFP": ResNet50FPNStagesTo5,
     "R-101-PABFP": ResNet101FPNStagesTo5,
     "R-152-PABFP": ResNet152FPNStagesTo5,
+    "R-50-NASFPN": ResNet50FPNStagesTo5,
+    "R-101-NASFPN": ResNet101FPNStagesTo5,
+    "R-152-NASFPN": ResNet152FPNStagesTo5,
 })

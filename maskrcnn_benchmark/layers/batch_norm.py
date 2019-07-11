@@ -29,3 +29,31 @@ class FrozenBatchNorm2d(nn.Module):
         scale = scale.reshape(1, -1, 1, 1)
         bias = bias.reshape(1, -1, 1, 1)
         return x * scale + bias
+
+class FrozenOriBatchNorm2d(nn.BatchNorm2d):
+    """
+    BatchNorm2d where the batch statistics and the affine parameters
+    are fixed
+    """
+
+    def __init__(self, n):
+        super(FrozenOriBatchNorm2d, self).__init__(n)
+
+        for param in self.parameters():
+            param.requires_grad = False
+
+        #self._specify_ddp_gpu_num(1)
+
+class SyncBatchNorm2d(nn.SyncBatchNorm):
+    """
+    BatchNorm2d where the batch statistics and the affine parameters
+    are fixed
+    """
+
+    def __init__(self, n):
+        super(SyncBatchNorm2d, self).__init__(n)
+
+        #for param in self.parameters():
+        #    param.requires_grad = False
+
+        self._specify_ddp_gpu_num(1)

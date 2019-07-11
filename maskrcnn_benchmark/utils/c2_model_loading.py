@@ -197,10 +197,13 @@ C2_FORMAT_LOADER = Registry()
 @C2_FORMAT_LOADER.register("R-50-PABFP")
 @C2_FORMAT_LOADER.register("R-101-PABFP")
 @C2_FORMAT_LOADER.register("R-152-PABFP")
+@C2_FORMAT_LOADER.register("R-50-NASFPN")
+@C2_FORMAT_LOADER.register("R-101-NASFPN")
+@C2_FORMAT_LOADER.register("R-152-NASFPN")
 def load_resnet_c2_format(cfg, f):
     state_dict = _load_c2_pickled_weights(f)
     conv_body = cfg.MODEL.BACKBONE.CONV_BODY
-    arch = conv_body.replace("-C4", "").replace("-C5", "").replace("-FPN", "").replace("-BFP", "").replace("-PAFPN", "").replace("-PABFP", "")
+    arch = conv_body.replace("-C4", "").replace("-C5", "").replace("-FPN", "").replace("-BFP", "").replace("-PAFPN", "").replace("-PABFP", "").replace("-NASFPN", "")
     arch = arch.replace("-RETINANET", "")
     stages = _C2_STAGE_NAMES[arch]
     state_dict = _rename_weights_for_resnet(state_dict, stages)

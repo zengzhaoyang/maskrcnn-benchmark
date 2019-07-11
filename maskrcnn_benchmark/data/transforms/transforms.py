@@ -4,7 +4,8 @@ import random
 import torch
 import torchvision
 from torchvision.transforms import functional as F
-
+import numpy as np
+from PIL import Image
 
 class Compose(object):
     def __init__(self, transforms):
@@ -57,7 +58,13 @@ class Resize(object):
     def __call__(self, image, target):
         size = self.get_size(image.size)
         image = F.resize(image, size)
-        target = target.resize(image.size)
+        if target.has_field("stuff"):
+            stuff = target.pop_field("stuff")
+            stuff = F.resize(stuff, (int(size[0] / 8), int(size[1] / 8)), interpolation=Image.NEAREST)
+            target = target.resize(image.size)
+            target.add_field("stuff", stuff)
+        else:
+            target = target.resize(image.size)
         return image, target
 
 
@@ -68,7 +75,13 @@ class RandomHorizontalFlip(object):
     def __call__(self, image, target):
         if random.random() < self.prob:
             image = F.hflip(image)
-            target = target.transpose(0)
+            if target.has_field("stuff"):
+                stuff = target.pop_field("stuff")
+                stuff = F.hflip(stuff)
+                target = target.transpose(0)
+                target.add_field("stuff", stuff)
+            else:
+                target = target.transpose(0)
         return image, target
 
 
@@ -92,6 +105,10 @@ class ColorJitter(object):
 
 class ToTensor(object):
     def __call__(self, image, target):
+        if target.has_field("stuff"):
+            stuff = target.get_field("stuff")
+            stuff = F.to_tensor(stuff)
+            target.add_field("stuff", stuff)
         return F.to_tensor(image), target
 
 
@@ -105,4 +122,10 @@ class Normalize(object):
         if self.to_bgr255:
             image = image[[2, 1, 0]] * 255
         image = F.normalize(image, mean=self.mean, std=self.std)
+
+        if target.has_field("stuff"):
+            stuff = target.get_field("stuff")
+            stuff = stuff * 255
+            target.add_field("stuff", stuff)
+
         return image, target

@@ -97,6 +97,16 @@ class FPN2MLPFeatureExtractor(nn.Module):
         x = [x[i] * w[i].view(-1, 1) for i in range(tot)]
         return x
 
+    def forward_pool(self, x, proposals):
+        x = self.pooler(x, proposals)
+        return x
+
+    def forward_extra(self, x):
+        x = x.view(x.size(0), -1)
+        x = F.relu(self.fc6(x))
+        x = F.relu(self.fc7(x))
+        return x
+
 class Conv2dWS(nn.Conv2d):
 
     def __init__(self, in_channels, out_channels, kernel_size, stride=1,
@@ -191,6 +201,17 @@ class FPNXconv1fcFeatureExtractor(nn.Module):
         x = x.view(x.size(0), -1)
         x = F.relu(self.fc6(x))
         return x
+
+    def forward_pool(self, x, proposals):
+        x = self.pooler(x, proposals)
+        return x
+
+    def forward_extra(self, x):
+        x = self.xconvs(x)
+        x = x.view(x.size(0), -1)
+        x = F.relu(self.fc6(x))
+        return x
+
 
 
 def make_roi_box_feature_extractor(cfg, in_channels):

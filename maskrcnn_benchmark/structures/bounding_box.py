@@ -45,6 +45,10 @@ class BoxList(object):
     def has_field(self, field):
         return field in self.extra_fields
 
+    def pop_field(self, field):
+        field_data = self.extra_fields.pop(field)
+        return field_data 
+
     def fields(self):
         return list(self.extra_fields.keys())
 

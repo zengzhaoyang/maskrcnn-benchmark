@@ -78,6 +78,44 @@ def make_conv3x3(
         return nn.Sequential(*module)
     return conv
 
+def make_conv1x1(
+    in_channels, 
+    out_channels, 
+    dilation=1, 
+    stride=1, 
+    use_gn=False,
+    use_relu=False,
+    kaiming_init=True,
+    use_ws=False
+):
+    conv = Conv2d(
+        in_channels, 
+        out_channels, 
+        kernel_size=1, 
+        stride=stride, 
+        padding=0, 
+        dilation=dilation, 
+        bias=False if use_gn else True,
+        ws=use_ws
+    )
+    if kaiming_init:
+        nn.init.kaiming_normal_(
+            conv.weight, mode="fan_out", nonlinearity="relu"
+        )
+    else:
+        torch.nn.init.normal_(conv.weight, std=0.01)
+    if not use_gn:
+        nn.init.constant_(conv.bias, 0)
+    module = [conv,]
+    if use_gn:
+        module.append(group_norm(out_channels))
+    if use_relu:
+        module.append(nn.ReLU(inplace=True))
+    if len(module) > 1:
+        return nn.Sequential(*module)
+    return conv
+
+
 
 def make_fc(dim_in, hidden_dim, use_gn=False):
     '''

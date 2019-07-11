@@ -4,9 +4,12 @@ MODEL:
   CASCADE_ON: True
   CLS_AGNOSTIC_BBOX_REG: True
   BACKBONE:
-    CONV_BODY: "R-101-FPN"
+    CONV_BODY: "R-101-BFP"
   RESNETS:
     BACKBONE_OUT_CHANNELS: 256
+    STAGE_WITH_DCN: (False, True, True, True)
+    WITH_MODULATED_DCN: True
+    DEFORMABLE_GROUPS: 1
   RPN:
     USE_FPN: True
     ANCHOR_STRIDE: (4, 8, 16, 32, 64)
@@ -33,4 +36,4 @@ SOLVER:
   STEPS: (60000, 80000)
   MAX_ITER: 90000
   IMS_PER_BATCH: 16
-OUTPUT_DIR: "models/cascade_r_101_fpn_weight_2017"
+OUTPUT_DIR: "models/cascade_r_101_bfp_mdconv_2017"
