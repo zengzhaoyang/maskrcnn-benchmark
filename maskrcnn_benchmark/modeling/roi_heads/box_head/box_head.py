@@ -5,7 +5,8 @@ from torch import nn
 from .roi_box_feature_extractors import make_roi_box_feature_extractor
 from .roi_box_predictors import make_roi_box_predictor
 from .inference import make_roi_box_post_processor, make_roi_box_cascade_processor
-from .loss import make_roi_box_loss_evaluator
+from .loss import make_roi_box_loss_evaluator, make_roi_vg_box_loss_evaluator
+
 
 
 class ROIBoxHead(torch.nn.Module):
@@ -107,3 +108,47 @@ def build_roi_box_head(cfg, in_channels, stage=None):
     and make it a parameter in the config
     """
     return ROIBoxHead(cfg, in_channels, stage)
+
+
+class ROIVGBoxHead(torch.nn.Module):
+
+    def __init__(self, cfg, in_channels):
+        super(ROIVGBoxHead, self).__init__()
+        self.feature_extractor = make_roi_box_feature_extractor(cfg, in_channels)
+        self.predictor = make_roi_vg_box_predictor(
+            cfg, self.feature_extractor.out_channels)
+        self.post_processor = make_roi_box_post_processor(cfg)
+        self.loss_evaluator = make_roi_vg_box_loss_evaluator(cfg)
+        self.cfg = cfg
+
+    def forward(self, features, proposals, targets=None):
+
+        if self.training:
+            # Faster R-CNN subsamples during training the proposals with a fixed
+            # positive / negative ratio
+            with torch.no_grad():
+                proposals = self.loss_evaluator.subsample(proposals, targets)
+
+        # extract features that will be fed to the final classifier. The
+        # feature_extractor generally corresponds to the pooler + heads
+        x = self.feature_extractor(features, proposals)
+
+        # final classifier that converts the features into predictions
+        class_logits, box_regression, attr_logits = self.predictor(x, proposals)
+
+        if not self.training:
+            result = self.post_processor((class_logits, box_regression), proposals)
+            return x, result, {}
+
+        loss_classifier, loss_box_reg, loss_attr = self.loss_evaluator(
+            [class_logits], [box_regression], [attr_logits]
+        )
+        return (
+            x,
+            proposals,
+            dict(loss_classifier=loss_classifier, loss_box_reg=loss_box_reg, loss_attr=loss_attr),
+        )
+
+
+def build_vg_roi_box_head(cfg, in_channels):
+    return ROIVGBoxHead(cfg, in_channels)
