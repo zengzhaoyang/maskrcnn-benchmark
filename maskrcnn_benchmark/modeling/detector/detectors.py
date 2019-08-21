@@ -1,8 +1,12 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 from .generalized_rcnn import GeneralizedRCNN
+from .vg_rcnn import VGRCNN
 
 
-_DETECTION_META_ARCHITECTURES = {"GeneralizedRCNN": GeneralizedRCNN}
+_DETECTION_META_ARCHITECTURES = {
+    "GeneralizedRCNN": GeneralizedRCNN,
+    "VGRCNN": VGRCNN
+}
 
 
 def build_detection_model(cfg):

@@ -52,14 +52,8 @@ class VGRCNN(nn.Module):
         features = self.backbone(images.tensors)
         proposals, proposal_losses = self.rpn(images, features, targets)
 
-        if self.cfg.MODEL.CONTEXT_FUSION:
-            context_proposal = torch.Tensor([[0., 0., images.tensors.shape[3]-1, images.tensors.shape[2]-1]]).float()
-            context_proposal = BoxList(context_proposal, (images.tensors.shape[3], images.tensors.shape[2]), mode="xyxy").to(proposals[0].bbox.device)
         if self.roi_heads:
-            if self.cfg.MODEL.CONTEXT_FUSION:
-                x, result, detector_losses = self.roi_heads(features, proposals, targets, context_proposal=context_proposal)
-            else:
-                x, result, detector_losses = self.roi_heads(features, proposals, targets)
+            x, result, detector_losses = self.roi_heads(features, proposals, targets)
 
         else:
             # RPN-only models don't have roi_heads

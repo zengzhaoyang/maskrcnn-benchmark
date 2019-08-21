@@ -3,7 +3,7 @@ import torch
 from torch import nn
 
 from .roi_box_feature_extractors import make_roi_box_feature_extractor
-from .roi_box_predictors import make_roi_box_predictor
+from .roi_box_predictors import make_roi_box_predictor, make_roi_vg_box_predictor
 from .inference import make_roi_box_post_processor, make_roi_box_cascade_processor
 from .loss import make_roi_box_loss_evaluator, make_roi_vg_box_loss_evaluator
 
@@ -117,7 +117,7 @@ class ROIVGBoxHead(torch.nn.Module):
         self.feature_extractor = make_roi_box_feature_extractor(cfg, in_channels)
         self.predictor = make_roi_vg_box_predictor(
             cfg, self.feature_extractor.out_channels)
-        self.post_processor = make_roi_box_post_processor(cfg)
+        self.post_processor = make_roi_box_post_processor(cfg, stage=None)
         self.loss_evaluator = make_roi_vg_box_loss_evaluator(cfg)
         self.cfg = cfg
 
